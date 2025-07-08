@@ -129,6 +129,7 @@ struct xiaomi_touch_interface {
 	bool finger_status;
 	int irq_no;
 	int touch_sensor_ctrl_value;
+	bool is_high_touch_rate_enabled;
 };
 
 struct xiaomi_touch {

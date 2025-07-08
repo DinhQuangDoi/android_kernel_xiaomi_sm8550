@@ -2231,6 +2231,97 @@ static ssize_t touch_ic_buffer_show(struct device *dev,
 	return rc;
 }
 
+static ssize_t high_touch_rate_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct xiaomi_touch_pdata *pdata = dev_get_drvdata(dev);
+	struct xiaomi_touch_interface *touch_data = NULL;
+
+	if (!pdata) {
+		pr_err("%s: pdata is null\n", __func__);
+		return -ENODEV;
+	}
+
+	touch_data = pdata->touch_data[0];
+	if (!touch_data) {
+		pr_err("%s: touch_data is null\n", __func__);
+		return -ENODEV;
+	}
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", touch_data->is_high_touch_rate_enabled);
+}
+
+static ssize_t high_touch_rate_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	unsigned int input;
+	struct xiaomi_touch_pdata *pdata = dev_get_drvdata(dev);
+	struct xiaomi_touch_interface *touch_data = NULL;
+
+	if (!pdata) {
+		pr_err("%s: pdata is null\n", __func__);
+		return -ENODEV;
+	}
+
+	touch_data = pdata->touch_data[0];
+	if (!touch_data) {
+		pr_err("%s: touch_data is null\n", __func__);
+		return -ENODEV;
+	}
+
+	if (sscanf(buf, "%d", &input) < 0)
+		return -EINVAL;
+
+	input = !!input;
+
+	if (touch_data->is_high_touch_rate_enabled == input) {
+		pr_info("%s: high touch rate already %s\n", __func__,
+			input ? "enabled" : "disabled");
+		return count;
+	}
+
+	if (input) {
+		/* Enable high touch rate */
+		if (touch_data->enable_touch_raw) {
+			touch_data->enable_touch_raw(true);
+		} else {
+			pr_err("%s: enable_touch_raw not implemented\n", __func__);
+			return -EIO;
+		}
+
+		if (touch_data->setModeValue) {
+			touch_data->setModeValue(THP_HAL_REPORT_RATE, 1);
+		} else {
+			pr_err("%s: setModeValue not implemented\n", __func__);
+			if (touch_data->enable_touch_raw)
+				touch_data->enable_touch_raw(false);
+			return -EIO;
+		}
+	} else {
+		/* Disable high touch rate */
+		if (touch_data->setModeValue) {
+			touch_data->setModeValue(THP_HAL_REPORT_RATE, 0);
+		} else {
+			pr_err("%s: setModeValue not implemented\n", __func__);
+			return -EIO;
+		}
+
+		if (touch_data->enable_touch_raw) {
+			touch_data->enable_touch_raw(false);
+		} else {
+			pr_err("%s: enable_touch_raw not implemented\n", __func__);
+			return -EIO;
+		}
+	}
+
+	touch_data->is_enable_touchraw = input;
+	touch_data->is_high_touch_rate_enabled = input;
+	pr_info("%s: high touch rate %s\n", __func__, input ? "enabled" : "disabled");
+
+	return count;
+}
+
 static DEVICE_ATTR(abnormal_event, (S_IRUGO | S_IWUSR | S_IWGRP),
 		   abnormal_event_show, abnormal_event_store);
 
@@ -2254,6 +2345,8 @@ static DEVICE_ATTR(touch_doze_analysis, (S_IRUGO | S_IWUSR | S_IWGRP),
 
 static DEVICE_ATTR(touch_ic_buffer, (S_IRUGO | S_IWUSR | S_IWGRP),
 		   touch_ic_buffer_show, NULL);
+
+static DEVICE_ATTR_RW(high_touch_rate);
 
 static DEVICE_ATTR(touch_thp_cmd_ready, (S_IRUGO | S_IWUSR | S_IWGRP),
 		   thp_cmd_ready_status_show, thp_cmd_ready_status_store);
@@ -2394,6 +2487,7 @@ static struct attribute *touch_attr_group[] = {
 	&dev_attr_touch_doze_analysis.attr,
 	&dev_attr_touch_ic_buffer.attr,
 	&dev_attr_touch_thp_cmd_ready.attr,
+	&dev_attr_high_touch_rate.attr,
 	NULL,
 };
 
