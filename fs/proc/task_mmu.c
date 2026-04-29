@@ -24,6 +24,7 @@
 #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
 #include <linux/susfs_def.h>
 #endif // #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
+#include <trace/hooks/mm.h>
 
 #include <asm/elf.h>
 #include <asm/tlb.h>
@@ -81,6 +82,7 @@ void task_mem(struct seq_file *m, struct mm_struct *mm)
 	SEQ_PUT_DEC(" kB\nVmSwap:\t", swap);
 	seq_puts(m, " kB\n");
 	hugetlb_report_usage(m, mm);
+	trace_android_vh_task_mem(m, mm);
 }
 #undef SEQ_PUT_DEC
 
