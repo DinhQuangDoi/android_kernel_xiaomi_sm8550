@@ -38,6 +38,7 @@
 
 #include "pnode.h"
 #include "internal.h"
+#include <trace/hooks/blk.h>
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 extern bool susfs_is_current_ksu_domain(void);
@@ -3178,6 +3179,8 @@ static int do_new_mount_fc(struct fs_context *fc, struct path *mountpoint,
 	unlock_mount(mp);
 	if (error < 0)
 		mntput(mnt);
+	else
+		trace_android_vh_do_new_mount_fc(mountpoint, mnt);
 	return error;
 }
 
