@@ -1,0 +1,73 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Device codename (fuxi / nuwa / socrates)
+        required: false
+        default: nuwa
+      msm_arch:
+        description: MSM variant (kalama / kalama_le / kalama_lu)
+        required: false
+        default: kalama
+      boot_img_url:
+        description: URL of the current boot.img to patch into KernelSU boot.img (optional)
+        required: false
+      use_droidspaces:
+        description: Enable DroidSpaces container runtime kernel config
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches: [16.0]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev dwarves cpio python3
+
+      - name: Setup KernelSU-Next
+        run: bash .github/scripts/setup-ksu.sh
+
+      - name: Download clang toolchain
+        run: |
+          mkdir -p clang
+          curl -L --fail \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz" \
+            | tar -xz -C clang
+
+      - name: Build kernel
+        env:
+          USE_DROIDSPACES: ${{ inputs.use_droidspaces }}
+        run: |
+          bash .github/scripts/build-kernel.sh \
+            "$PWD" \
+            "$PWD/clang" \
+            "${{ inputs.device || 'nuwa' }}" \
+            "${{ inputs.msm_arch || 'kalama' }}"
+
+      - name: Package artifacts
+        env:
+          BOOT_IMG_URL: ${{ inputs.boot_img_url }}
+        run: bash .github/scripts/package.sh "$PWD"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ inputs.device || 'nuwa' }}
+          if-no-files-found: ignore
+          path: |
+            dist/Image
+            dist/config
+            dist/KernelSU-boot.img
