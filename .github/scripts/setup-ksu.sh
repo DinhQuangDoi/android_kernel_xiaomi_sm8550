@@ -13,6 +13,6 @@ git -C KernelSU-Next fetch --quiet origin "${KSU_COMMIT}"
 git -C KernelSU-Next checkout --quiet "${KSU_COMMIT}"
 
 rm -f drivers/kernelsu
-ln -s ../../KernelSU-Next/kernel drivers/kernelsu
+ln -s ../KernelSU-Next/kernel drivers/kernelsu
 
 echo "KernelSU-Next ready at $(git -C KernelSU-Next rev-parse HEAD)"
