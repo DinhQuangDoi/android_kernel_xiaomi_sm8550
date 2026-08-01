@@ -35,6 +35,7 @@ KCONFIG_CONFIG="${KERNEL_DIR}/out/.config" \
 
 printf '\n' >> out/.config
 ./scripts/config --file out/.config -e KSU
+./scripts/config --file out/.config -e LTO_CLANG_THIN -d LTO_CLANG_FULL
 
 make O=out olddefconfig
 
