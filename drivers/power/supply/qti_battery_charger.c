@@ -660,6 +660,7 @@ struct battery_chg_dev {
 	u32				boost_mode;
 	u32				thermal_fcc_step;
 	bool				restrict_chg_en;
+	int				last_reported_soc;
 	/* To track the driver initialization status */
 	bool				initialized;
 	u8				*digest;
@@ -1950,15 +1951,18 @@ static struct power_supply_desc usb_psy_desc;
  *	returned value approaches to xm_soc
  */
 static u32 xm_calculate_soc(u32 batt_soc, u32 xm_soc) {
-	u32 range, batt_diff;
+	u32 range, weight;
 
 	range = 100 - FG_SOC_THRESHOLD;
-	batt_diff = batt_soc - FG_SOC_THRESHOLD;
 
 	if (batt_soc <= FG_SOC_THRESHOLD)
 		return xm_soc;
 
-	return mult_frac(batt_soc, batt_diff, range) + mult_frac(xm_soc, range - batt_diff, range);
+	/* Linear interpolation: weight goes from 0 (at threshold) to range (at 100%) */
+	weight = batt_soc - FG_SOC_THRESHOLD;
+
+	/* Linearly blend: at 100% fully trust batt_soc, at 90% fully trust xm_soc */
+	return (batt_soc * weight + xm_soc * (range - weight) + range / 2) / range;
 }
 
 static u32 xm_get_battery_capacity(struct battery_chg_dev *bcdev) {
@@ -1981,16 +1985,12 @@ static u32 xm_get_battery_capacity(struct battery_chg_dev *bcdev) {
 	}
 
 	rc = read_property_id(bcdev, pst, BATT_CAPACITY);
-	if (rc < 0) {
-		pr_err("Could not read BATT_CAPACITY from pst");
-		return 0;
-	}
+	if (rc < 0)
+		pr_err("Could not read BATT_CAPACITY from pst, using cached value\n");
 
 	rc = read_property_id(bcdev, xm_pst, XM_PROP_FG1_RSOC);
-	if (rc < 0) {
-		pr_err("Could not read XM_PROP_FG1_RSOC from xm_pst");
-		return 0;
-	}
+	if (rc < 0)
+		pr_err("Could not read XM_PROP_FG1_RSOC from xm_pst, using cached value\n");
 
 	batt_soc = DIV_ROUND_CLOSEST(pst->prop[BATT_CAPACITY], 100);
 	xm_soc = xm_pst->prop[XM_PROP_FG1_RSOC];
@@ -1998,6 +1998,21 @@ static u32 xm_get_battery_capacity(struct battery_chg_dev *bcdev) {
 	ret_soc = xm_calculate_soc(batt_soc, xm_soc);
 
 	pr_info("batt_soc %d, xm_soc %d, ret_soc %d", batt_soc, xm_soc, ret_soc);
+
+	return ret_soc;
+}
+
+static u32 xm_get_battery_capacity_smoothed(struct battery_chg_dev *bcdev) {
+	u32 ret_soc = xm_get_battery_capacity(bcdev);
+
+	/* Slew-limit: never drop more than 1% per poll, so the UI can't skip a number */
+	if (ret_soc > FG_SOC_THRESHOLD &&
+	    bcdev->last_reported_soc >= 0 &&
+	    ret_soc < bcdev->last_reported_soc &&
+	    (bcdev->last_reported_soc - ret_soc) > 1) {
+		ret_soc = bcdev->last_reported_soc - 1;
+	}
+	bcdev->last_reported_soc = ret_soc;
 
 	return ret_soc;
 }
@@ -3051,7 +3066,7 @@ static int battery_psy_get_prop(struct power_supply *psy,
 		if (bcdev->fake_soc >= 0 && bcdev->fake_soc <= 100)
 			pval->intval = bcdev->fake_soc;
 		else
-			pval->intval = xm_get_battery_capacity(bcdev);
+			pval->intval = xm_get_battery_capacity_smoothed(bcdev);
 		break;
 	case POWER_SUPPLY_PROP_TEMP:
 		pval->intval = DIV_ROUND_CLOSEST((int)pst->prop[prop_id], 10);
@@ -8786,6 +8801,7 @@ static int battery_chg_probe(struct platform_device *pdev)
 	INIT_DELAYED_WORK( &bcdev->xm_prop_change_work, generate_xm_charge_uvent);
 	INIT_DELAYED_WORK( &bcdev->charger_debug_info_print_work, xm_charger_debug_info_print_work);
 	INIT_DELAYED_WORK( &bcdev->batt_update_work, xm_batt_update_work);
+	bcdev->last_reported_soc = -1;
 	bcdev->dev = dev;
 
 	rc = battery_chg_register_panel_notifier(bcdev);
