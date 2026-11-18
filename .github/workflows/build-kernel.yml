@@ -1,0 +1,86 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Device codename (fuxi / nuwa / socrates)
+        required: false
+        default: nuwa
+      msm_arch:
+        description: MSM variant (kalama / kalama_le / kalama_lu)
+        required: false
+        default: kalama
+      custom_kernel_name:
+        description: Custom kernel name (optional suffix, e.g. BakaSU or -custom)
+        required: false
+        default: ""
+      boot_img_url:
+        description: URL of the current boot.img to patch into BakaSU boot.img (optional)
+        required: false
+      use_droidspaces:
+        description: Enable DroidSpaces container runtime kernel config
+        required: false
+        default: true
+        type: boolean
+      bakasu_ref:
+        description: BakaSU branch or commit ref (default stable 5b76b884)
+        required: false
+        default: 5b76b884c75f729a220bb317aa4a4fc78f0e0e9c
+  push:
+    branches: ['lineage-24.0', '17.0']
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev dwarves cpio python3 zip
+
+      - name: Setup BakaSU
+        run: bash .github/scripts/setup-bakasu.sh "${{ inputs.bakasu_ref || '5b76b884c75f729a220bb317aa4a4fc78f0e0e9c' }}"
+
+      - name: Download clang toolchain
+        run: |
+          mkdir -p clang
+          curl -L --fail \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main-kernel-build-2023/clang-r487747c.tar.gz" \
+            | tar -xz -C clang
+
+      - name: Build kernel
+        env:
+          USE_DROIDSPACES: ${{ github.event_name == 'workflow_dispatch' && inputs.use_droidspaces || 'true' }}
+          CUSTOM_KERNEL_NAME: ${{ inputs.custom_kernel_name || '' }}
+        run: |
+          bash .github/scripts/build-kernel.sh \
+            "$PWD" \
+            "$PWD/clang" \
+            "${{ inputs.device || 'nuwa' }}" \
+            "${{ inputs.msm_arch || 'kalama' }}"
+
+      - name: Package artifacts
+        env:
+          BOOT_IMG_URL: ${{ inputs.boot_img_url }}
+          DEVICE: ${{ inputs.device || 'nuwa' }}
+          MSM_ARCH: ${{ inputs.msm_arch || 'kalama' }}
+          CUSTOM_KERNEL_NAME: ${{ inputs.custom_kernel_name || '' }}
+        run: bash .github/scripts/package.sh "$PWD"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ inputs.device || 'nuwa' }}
+          if-no-files-found: ignore
+          compression-level: 0
+          path: |
+            dist/AnyKernel3-*.zip
+            dist/config
+            dist/BakaSU-boot.img
