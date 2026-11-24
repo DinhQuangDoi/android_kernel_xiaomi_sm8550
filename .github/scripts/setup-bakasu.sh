@@ -8,13 +8,16 @@ KERNEL_DIR="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "${KERNEL_DIR}"
 
 rm -rf KernelSU KernelSU-Next
-if git clone --depth 1 --branch "${BAKASU_REF}" "${BAKASU_REPO}" KernelSU 2>/dev/null; then
-    echo "Shallow cloned ${BAKASU_REF}"
-else
-    echo "Fetching ${BAKASU_REF} from ${BAKASU_REPO}..."
-    git clone --depth 50 "${BAKASU_REPO}" KernelSU || git clone "${BAKASU_REPO}" KernelSU
-    git -C KernelSU checkout "${BAKASU_REF}"
+
+# Clone the default branch shallow, then fetch + checkout the pinned commit.
+# Do NOT use `git clone --depth 1 --branch <SHA>`: GitHub does not advertise a
+# raw commit hash as a branch, and a bounded --depth clone may not reach an
+# older pinned commit (fails with "unable to read tree").
+if ! git clone --depth 1 "${BAKASU_REPO}" KernelSU; then
+    git clone "${BAKASU_REPO}" KernelSU
 fi
+git -C KernelSU fetch --depth 1 origin "${BAKASU_REF}" || git -C KernelSU fetch origin "${BAKASU_REF}"
+git -C KernelSU checkout "${BAKASU_REF}"
 
 # Remove temporary upstream build error on main for SuSFS if present
 if [ -f "KernelSU/kernel/tools/susfs_compat.mk" ]; then
